@@ -343,6 +343,7 @@ double Container::getNumber(int index, double defaultValue) {
     try {
         return std::stod(value->getString());
     } catch (std::exception &) {
+        // std::stod failed, return default value
         return defaultValue;
     }
 }

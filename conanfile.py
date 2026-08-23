@@ -4,9 +4,9 @@ from conan.tools.cmake import CMake
 
 
 class Project(ConanFile):
-    name = "footprint-tool"
-    description = "Tool for generating footprints for KiCad"
-    url = "https://github.com/Jochen0x90h/FootprintTool"
+    name = "pcb-tool"
+    description = "Tool for manipulating KiCad pcb and schematic files"
+    url = "https://github.com/Jochen0x90h/pcb-tool"
     license = "MIT"
     settings = "os", "compiler", "build_type", "arch"
     default_options = {}

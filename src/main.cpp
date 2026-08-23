@@ -168,17 +168,31 @@ void readSheets(kicad::Container &schematic, const fs::path &directory, const st
     }
 }
 
+enum class ShowMode {
+    HIDE = 0,
+    SHOW = 1,
+    KEEP_OR_HIDE = 2,
+    KEEP_OR_SHOW = 3,
+};
+
 void addProperty(kicad::Container *symbol, kicad::Container *property, std::string_view name, std::string_view value,
-    double x, double y)
+    double x, double y, ShowMode showMode = ShowMode::KEEP_OR_HIDE)
 {
     if (property == nullptr) {
+        // create new property
         property = symbol->add("property");
         property->setString(0, name);
         property->setString(1, value);
         property->add("at")->addNumber(x).addNumber(y).addNumber(0);
-        property->add("effects")->add("hide")->addTag("yes");
+        if ((int(showMode) & 1) == 0)
+            property->add("hide")->addTag("yes");
     } else {
+        // modify existing property
         property->setString(1, value);
+        if (showMode == ShowMode::HIDE)
+            property->update("hide", [](kicad::Container &c) {c.clear().addTag("yes");});
+        else if (showMode == ShowMode::SHOW)
+            property->erase("hide");
     }
 }
 
@@ -428,6 +442,7 @@ int main(int argc, const char **argv) {
     // pcb options
     std::map<int, double> exchangeSegmentWidth;
     std::map<int, double> exchangeViaSize;
+    std::map<std::string, std::string> exchangeSegmentLayer;
     std::list<std::regex> hideReference;
     std::list<std::regex> removeNet;
     std::list<std::regex> moveFootprint;
@@ -469,11 +484,11 @@ int main(int argc, const char **argv) {
             auto sheet = wb.active_sheet();
             for (uint32_t row = 6; row <= sheet.highest_row(); ++row) {
                 auto references = getCellValue(sheet, row, 1);
-                auto manufacturer = getCellValue(sheet, row, 8);
-                auto mpn = getCellValue(sheet, row, 7);
-                auto description = getCellValue(sheet, row, 10);
-                auto datasheet = getCellValue(sheet, row, 14);
-                auto lcscPn = getCellValue(sheet, row, 13);
+                auto manufacturer = getCellValue(sheet, row, 7);
+                auto mpn = getCellValue(sheet, row, 6);
+                auto description = getCellValue(sheet, row, 9);
+                auto datasheet = getCellValue(sheet, row, 13);
+                auto lcscPn = getCellValue(sheet, row, 12);
 
                 // split references (designators) by comma
                 std::stringstream ss(references);
@@ -497,6 +512,10 @@ int main(int argc, const char **argv) {
             } catch (std::exception &) {
                 // invalid width
             }
+        } else if (arg == "-xsl") {
+            // exchange segment layer
+            i += 2;
+            exchangeSegmentLayer[argv[i - 1]] = argv[i];
         } else if (arg == "-xvs") {
             // exchange via size
             i += 2;
@@ -564,6 +583,7 @@ int main(int argc, const char **argv) {
     std::map<std::string, Symbol *> referenceToSymbol;
 
     bool hasExchangeSegmentWidth = !exchangeSegmentWidth.empty();
+    bool hasExchangeSegmentLayer = !exchangeSegmentLayer.empty();
     bool hasExchangeViaSize = !exchangeViaSize.empty();
 
     // print usage if no input files
@@ -575,6 +595,7 @@ int main(int argc, const char **argv) {
         std::cout << "    -as                                            Annotate schematic using sheet number as first number (only schematic)" << std::endl;
         std::cout << "    -rp <property regex>                           Remove property (schematic and pcb)" << std::endl;
         std::cout << "    -xsw <old segment width> <new segment width>   Exchange segment width (only pcb)" << std::endl;
+        std::cout << "    -xsl <old segment layer> <new segment layer>   Exchange segment layer (only pcb)" << std::endl;
         std::cout << "    -xvs <old via size> <new via size>             Exchange via size (only pcb)" << std::endl;
         std::cout << "    -hr <reference>                                Hide reference, supports regular expressions, e.g. R.* (only pcb)" << std::endl;
         std::cout << "    -rn <net>                                      Remove net, supports regular expressions, e.g. GND (only pcb)" << std::endl;
@@ -1033,30 +1054,35 @@ int main(int argc, const char **argv) {
                             }
                         }
                     }
-                } else if (hasExchangeSegmentWidth && container1->id == "segment") {
+                } else if (container1->id == "segment") {
                     auto segment = container1;
-                    auto width = segment->find("width");
-                    if (width != nullptr) {
-                        try {
+                    if (hasExchangeSegmentWidth) {
+                        auto width = segment->find("width");
+                        if (width != nullptr) {
                             double oldWidth = width->getNumber(0);
                             auto it = exchangeSegmentWidth.find(int(std::round(oldWidth * 1000.0)));
                             if (it != exchangeSegmentWidth.end()) {
                                 width->setNumber(0, it->second);
                             }
-                        } catch (std::exception &) {
+                        }
+                    }
+                    if (hasExchangeSegmentLayer) {
+                        auto layer = segment->find("layer");
+                        if (layer != nullptr) {
+                            auto it = exchangeSegmentLayer.find(layer->getString(0));
+                            if (it != exchangeSegmentLayer.end()) {
+                                layer->setString(0, it->second);
+                            }
                         }
                     }
                 } else if (hasExchangeViaSize && container1->id == "via") {
                     auto via = container1;
                     auto size = via->find("size");
                     if (size != nullptr) {
-                        try {
-                            double oldSize = size->getNumber(0);
-                            auto it = exchangeViaSize.find(int(std::round(oldSize * 1000.0)));
-                            if (it != exchangeViaSize.end()) {
-                                size->setNumber(0, it->second);
-                            }
-                        } catch (std::exception &) {
+                        double oldSize = size->getNumber(0);
+                        auto it = exchangeViaSize.find(int(std::round(oldSize * 1000.0)));
+                        if (it != exchangeViaSize.end()) {
+                            size->setNumber(0, it->second);
                         }
                     }
                 }
